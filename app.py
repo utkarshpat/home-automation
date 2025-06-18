@@ -86,22 +86,32 @@ for i in range(1, 5):
         }
     update_relay(relay_key)
 
-    st.subheader(f"{relay_states[relay_key]['name']}")
-    st.toggle("Status", key=relay_key + "_toggle", value=relay_states[relay_key]["status"])
+    bg_color = "green" if relay_states[relay_key]["status"] else "red"
+    st.markdown(f"""
+    <div style='background-color:{bg_color};padding:1rem;border-radius:10px;margin-bottom:1rem'>
+        <h3 style='color:white;'>{relay_states[relay_key]['name']}</h3>
+        <form action="#">
+            <input type="checkbox" id="{relay_key}_toggle" {'checked' if relay_states[relay_key]['status'] else ''} onchange="window.location.reload()">
+            <label for="{relay_key}_toggle" style='color:white;font-size:1.2rem'> Toggle </label>
+        </form>
+        <p style='color:white;'>Last ON: {format_time(relay_states[relay_key]['last_on'])}</p>
+        <p style='color:white;'>Last OFF: {format_time(relay_states[relay_key]['last_off'])}</p>
+        <p style='color:white;'>Total ON Time: {str(datetime.timedelta(seconds=relay_states[relay_key]['total_on_time']))}</p>
+    </div>
+    """, unsafe_allow_html=True)
 
-    if st.session_state[relay_key + "_toggle"] != relay_states[relay_key]["status"]:
-        relay_states[relay_key]["status"] = st.session_state[relay_key + "_toggle"]
-        if relay_states[relay_key]["status"]:
+    toggle = st.toggle("", key=relay_key + "_toggle", value=relay_states[relay_key]["status"])
+    if toggle != relay_states[relay_key]["status"]:
+        relay_states[relay_key]["status"] = toggle
+        if toggle:
             relay_states[relay_key]["last_on"] = now.isoformat()
         else:
             relay_states[relay_key]["last_off"] = now.isoformat()
         save_state(relay_key, relay_states[relay_key])
 
-    st.write("Last ON:", format_time(relay_states[relay_key].get("last_on")))
-    st.write("Last OFF:", format_time(relay_states[relay_key].get("last_off")))
-    st.write("Total ON Time:", str(datetime.timedelta(seconds=relay_states[relay_key]["total_on_time"])))
-    st.number_input("Auto ON (s)", min_value=0, key=relay_key + "_auto_on")
-    st.number_input("Auto OFF (s)", min_value=0, key=relay_key + "_auto_off")
-    st.time_input("Schedule ON", value=datetime.time(0, 0), key=relay_key + "_sched_on")
-    st.time_input("Schedule OFF", value=datetime.time(0, 0), key=relay_key + "_sched_off")
-    st.markdown("---")
+    with st.expander("⚙️ Options"):
+        st.number_input("Auto ON (s)", min_value=0, key=relay_key + "_auto_on")
+        st.number_input("Auto OFF (s)", min_value=0, key=relay_key + "_auto_off")
+        st.time_input("Schedule ON", value=datetime.time(0, 0), key=relay_key + "_sched_on")
+        st.time_input("Schedule OFF", value=datetime.time(0, 0), key=relay_key + "_sched_off")
+        st.text_input("Rename", value=relay_states[relay_key]['name'], key=relay_key + "_name")
