@@ -37,7 +37,7 @@ def load_states():
     return data
 
 def save_state(relay_name, data):
-    ref.child(relay_name).set(data)
+    ref.child(relay_name.lower().replace(" ", "")).set(data)
 
 # Load initial states
 relay_states = load_states()
@@ -52,50 +52,52 @@ def format_time(timestamp):
 def update_relay_state(relay_key):
     relay = relay_states[relay_key]
 
+    now = datetime.datetime.now(IST)
+
     # Auto ON/OFF Logic
     auto_on = st.session_state.get(relay_key + "_auto_on", 0)
     auto_off = st.session_state.get(relay_key + "_auto_off", 0)
 
-    if auto_on > 0 and relay["last_off"]:
+    if auto_on > 0 and relay["last_off"] and not st.session_state.get(relay_key + "_manual_override", False):
         off_time = datetime.datetime.fromisoformat(relay["last_off"])
-        if (current_time - off_time).total_seconds() >= auto_on and not relay["status"]:
+        if (now - off_time).total_seconds() >= auto_on and not relay["status"]:
             relay["status"] = True
-            relay["last_on"] = current_time.isoformat()
+            relay["last_on"] = now.isoformat()
 
-    if auto_off > 0 and relay["last_on"]:
+    if auto_off > 0 and relay["last_on"] and not st.session_state.get(relay_key + "_manual_override", False):
         on_time = datetime.datetime.fromisoformat(relay["last_on"])
-        if (current_time - on_time).total_seconds() >= auto_off and relay["status"]:
+        if (now - on_time).total_seconds() >= auto_off and relay["status"]:
             relay["status"] = False
-            relay["last_off"] = current_time.isoformat()
-            relay["total_on_time"] += int((current_time - on_time).total_seconds())
+            relay["last_off"] = now.isoformat()
+            relay["total_on_time"] += int((now - on_time).total_seconds())
 
     # Scheduler Logic
     sched_on = st.session_state.get(relay_key + "_sched_on")
     sched_off = st.session_state.get(relay_key + "_sched_off")
 
-    if sched_on and current_time.time().hour == sched_on.hour and current_time.time().minute == sched_on.minute and not relay["status"]:
+    if sched_on and now.time().hour == sched_on.hour and now.time().minute == sched_on.minute and not relay["status"]:
         relay["status"] = True
-        relay["last_on"] = current_time.isoformat()
+        relay["last_on"] = now.isoformat()
 
-    if sched_off and current_time.time().hour == sched_off.hour and current_time.time().minute == sched_off.minute and relay["status"]:
+    if sched_off and now.time().hour == sched_off.hour and now.time().minute == sched_off.minute and relay["status"]:
         relay["status"] = False
-        relay["last_off"] = current_time.isoformat()
-        relay["total_on_time"] += int((current_time - datetime.datetime.fromisoformat(relay["last_on"])).total_seconds())
+        relay["last_off"] = now.isoformat()
+        relay["total_on_time"] += int((now - datetime.datetime.fromisoformat(relay["last_on"])).total_seconds())
 
     save_state(relay_key, relay)
 
 # Ensure all relays exist
 for i in range(1, 5):
-    relay_name = f"Relay {i}"
-    if relay_name not in relay_states:
-        relay_states[relay_name] = {
+    relay_key = f"relay{i}"
+    if relay_key not in relay_states:
+        relay_states[relay_key] = {
             "status": False,
             "last_on": None,
             "last_off": None,
             "total_on_time": 0,
-            "name": relay_name
+            "name": f"Relay {i}"
         }
-    update_relay_state(relay_name)
+    update_relay_state(relay_key)
 
 st.set_page_config(layout="wide", page_title="Smart Home Dashboard", page_icon="🏠")
 
@@ -105,17 +107,18 @@ st.markdown("## 🏠 Smart Home Dashboard")
 page = st.sidebar.selectbox("Choose page", ["Main Dashboard", "Schedule", "Statistics"])
 
 def relay_ui(index):
-    relay_key = f"Relay {index}"
+    relay_key = f"relay{index}"
     relay = relay_states[relay_key]
 
     col1, col2 = st.columns([3, 1])
     with col1:
-        relay["name"] = st.text_input(f"Name for {relay_key}", relay["name"], key=relay_key + "_name")
+        relay["name"] = st.text_input(f"Name for Relay {index}", relay["name"], key=relay_key + "_name")
     with col2:
         toggle = st.toggle("", value=relay["status"], key=relay_key + "_toggle")
         now = datetime.datetime.now(IST)
         if toggle != relay["status"]:
             relay["status"] = toggle
+            st.session_state[relay_key + "_manual_override"] = True
             if toggle:
                 relay["last_on"] = now.isoformat()
             else:
@@ -125,7 +128,7 @@ def relay_ui(index):
                     relay["total_on_time"] += int((now - last_on_dt).total_seconds())
             save_state(relay_key, relay)
 
-    with st.expander(f"⚙️ Options for {relay_key}"):
+    with st.expander(f"⚙️ Options for Relay {index}"):
         st.write("**Last ON:**", format_time(relay.get("last_on")))
         st.write("**Last OFF:**", format_time(relay.get("last_off")))
         st.write("**Today's ON Time:**", str(datetime.timedelta(seconds=relay.get("total_on_time", 0))))
@@ -152,7 +155,7 @@ if page == "Main Dashboard":
 elif page == "Schedule":
     st.markdown("## 📅 Scheduled Tasks")
     for i in range(1, 5):
-        relay_key = f"Relay {i}"
+        relay_key = f"relay{i}"
         st.write(f"**{relay_states[relay_key]['name']}**")
         st.write("Scheduled ON:", st.session_state.get(relay_key + "_sched_on"))
         st.write("Scheduled OFF:", st.session_state.get(relay_key + "_sched_off"))
@@ -161,7 +164,7 @@ elif page == "Schedule":
 elif page == "Statistics":
     st.markdown("## 📊 Relay Usage Statistics")
     for i in range(1, 5):
-        relay_key = f"Relay {i}"
+        relay_key = f"relay{i}"
         relay = relay_states[relay_key]
         st.write(f"**{relay['name']}**")
         st.write("Last ON:", format_time(relay.get("last_on")))
