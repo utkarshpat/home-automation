@@ -51,7 +51,6 @@ def format_time(timestamp):
 
 def update_relay_state(relay_key):
     relay = relay_states[relay_key]
-
     now = datetime.datetime.now(IST)
 
     # Auto ON/OFF Logic
@@ -95,12 +94,13 @@ for i in range(1, 5):
             "last_on": None,
             "last_off": None,
             "total_on_time": 0,
-            "name": f"Relay {i}"
+            "name": f"Relay {i}",
+            "pir_enabled": False,
+            "manual_override": False
         }
     update_relay_state(relay_key)
 
 st.set_page_config(layout="wide", page_title="Smart Home Dashboard", page_icon="🏠")
-
 st.markdown("## 🏠 Smart Home Dashboard")
 
 # Page selector
@@ -119,6 +119,7 @@ def relay_ui(index):
         if toggle != relay["status"]:
             relay["status"] = toggle
             st.session_state[relay_key + "_manual_override"] = True
+            relay["manual_override"] = True
             if toggle:
                 relay["last_on"] = now.isoformat()
             else:
@@ -144,6 +145,9 @@ def relay_ui(index):
             st.time_input("Schedule ON", value=datetime.time(0, 0), key=relay_key + "_sched_on")
         with sched_col2:
             st.time_input("Schedule OFF", value=datetime.time(0, 0), key=relay_key + "_sched_off")
+
+        st.checkbox("Enable PIR Control", value=relay.get("pir_enabled", False), key=relay_key + "_pir_enabled")
+        st.checkbox("Manual Override (disable PIR)", value=relay.get("manual_override", False), key=relay_key + "_manual_override")
 
 if page == "Main Dashboard":
     for row in range(2):
