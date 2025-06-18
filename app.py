@@ -31,6 +31,7 @@ IST = pytz.timezone('Asia/Kolkata')
 # Load data from Firebase
 ref = db.reference("relays")
 pir_ref = db.reference("pir")
+pir_settings_ref = db.reference("pir_settings")
 
 def load_states():
     data = ref.get()
@@ -116,7 +117,7 @@ st.set_page_config(layout="wide", page_title="Smart Home Dashboard", page_icon="
 st.markdown("## 🏠 Smart Home Dashboard")
 
 # Page selector
-page = st.sidebar.selectbox("Choose page", ["Main Dashboard", "Schedule", "Statistics", "PIR Status"])
+page = st.sidebar.selectbox("Choose page", ["Main Dashboard", "Schedule", "Statistics", "PIR Status", "PIR Settings"])
 
 def relay_ui(index):
     relay_key = f"relay{index}"
@@ -195,3 +196,30 @@ elif page == "PIR Status":
     else:
         for pir_key, status in pir_states.items():
             st.write(f"**{pir_key.upper()}**: {'🚶 Motion Detected' if status else '🛑 No Motion'}")
+
+elif page == "PIR Settings":
+    st.markdown("## 🕵️ PIR Sensor Settings")
+
+    pir_data = pir_settings_ref.get() or {
+        "enabled": False,
+        "manual_override": False,
+        "relays": []
+    }
+
+    enabled = st.checkbox("Enable PIR Motion Detection", value=pir_data.get("enabled", False))
+    manual_override = st.checkbox("Manual Override (Disable PIR Response)", value=pir_data.get("manual_override", False))
+
+    relay_choices = ["relay1", "relay2", "relay3", "relay4"]
+    selected_relays = st.multiselect(
+        "Select Relays to be Controlled by PIR",
+        options=relay_choices,
+        default=pir_data.get("relays", [])
+    )
+
+    if st.button("💾 Save PIR Settings"):
+        pir_settings_ref.set({
+            "enabled": enabled,
+            "manual_override": manual_override,
+            "relays": selected_relays
+        })
+        st.success("PIR settings updated!")
