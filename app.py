@@ -30,8 +30,16 @@ IST = pytz.timezone('Asia/Kolkata')
 
 # Load data from Firebase
 ref = db.reference("relays")
+pir_ref = db.reference("pir")
+
 def load_states():
     data = ref.get()
+    if not data:
+        return {}
+    return data
+
+def load_pir():
+    data = pir_ref.get()
     if not data:
         return {}
     return data
@@ -39,8 +47,12 @@ def load_states():
 def save_state(relay_key, data):
     ref.child(relay_key).set(data)
 
+# Real-time refresh
+st.experimental_rerun_interval = 2000  # every 2 seconds
+
 # Load initial states
 relay_states = load_states()
+pir_states = load_pir()
 current_time = datetime.datetime.now(IST)
 
 def format_time(timestamp):
@@ -104,7 +116,7 @@ st.set_page_config(layout="wide", page_title="Smart Home Dashboard", page_icon="
 st.markdown("## 🏠 Smart Home Dashboard")
 
 # Page selector
-page = st.sidebar.selectbox("Choose page", ["Main Dashboard", "Schedule", "Statistics"])
+page = st.sidebar.selectbox("Choose page", ["Main Dashboard", "Schedule", "Statistics", "PIR Status"])
 
 def relay_ui(index):
     relay_key = f"relay{index}"
@@ -175,3 +187,11 @@ elif page == "Statistics":
         st.write("Last OFF:", format_time(relay.get("last_off")))
         st.write("Total ON time today:", str(datetime.timedelta(seconds=relay.get("total_on_time", 0))))
         st.markdown("---")
+
+elif page == "PIR Status":
+    st.markdown("## 🚨 PIR Sensor Status")
+    if not pir_states:
+        st.info("No PIR data available.")
+    else:
+        for pir_key, status in pir_states.items():
+            st.write(f"**{pir_key.upper()}**: {'🚶 Motion Detected' if status else '🛑 No Motion'}")
