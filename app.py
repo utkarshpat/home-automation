@@ -1,9 +1,8 @@
 import streamlit as st
 import firebase_admin
 from firebase_admin import credentials, db
-import json
 
-# Initialize Firebase only once
+# Initialize Firebase once
 if 'firebase_initialized' not in st.session_state:
     cred = credentials.Certificate({
         "type": st.secrets["firebase"]["type"],
@@ -24,24 +23,19 @@ if 'firebase_initialized' not in st.session_state:
     })
     st.session_state.firebase_initialized = True
 
-# UI
-st.title("💡 Firebase Realtime Control Panel")
+st.title("🔌 Home Automation Dashboard")
+st.subheader("Control up to 4 Relays")
 
-# Input field
-relay_state = st.selectbox("Relay State", ["ON", "OFF"])
+# UI Layout for 4 relays
+for i in range(1, 5):
+    col1, col2 = st.columns([2, 1])
+    with col1:
+        label = st.text_input(f"Relay {i} Name", f"Relay {i}", key=f"name_{i}")
+    with col2:
+        toggle = st.toggle("On/Off", key=f"toggle_{i}")
 
-if st.button("Send to Firebase"):
+    # Update Firebase on toggle
     try:
-        ref = db.reference("/relay1")
-        ref.set(relay_state)
-        st.success(f"Successfully set relay to: {relay_state}")
+        db.reference(f"/relay{i}").set(toggle)
     except Exception as e:
-        st.error(f"Error writing to Firebase: {e}")
-
-# Read current value
-if st.button("Check Current Value"):
-    try:
-        value = db.reference("/relay1").get()
-        st.info(f"Current Firebase value: {value}")
-    except Exception as e:
-        st.error(f"Error reading from Firebase: {e}")
+        st.error(f"Failed to update relay{i}: {e}")
