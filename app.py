@@ -36,8 +36,8 @@ def load_states():
         return {}
     return data
 
-def save_state(relay_name, data):
-    ref.child(relay_name.lower().replace(" ", "")).set(data)
+def save_state(relay_key, data):
+    ref.child(relay_key).set(data)
 
 # Load initial states
 relay_states = load_states()
