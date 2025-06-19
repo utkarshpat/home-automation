@@ -4,7 +4,7 @@ import pytz
 import firebase_admin
 from firebase_admin import credentials, db
 
-# Initialize Firebase
+# Firebase setup
 if not firebase_admin._apps:
     cred = credentials.Certificate({
         "type": st.secrets["type"],
@@ -16,39 +16,34 @@ if not firebase_admin._apps:
         "auth_uri": st.secrets["auth_uri"],
         "token_uri": st.secrets["token_uri"],
         "auth_provider_x509_cert_url": st.secrets["auth_provider_x509_cert_url"],
-        "client_x509_cert_url": st.secrets["client_x509_cert_url"]
+        "client_x509_cert_url": st.secrets["client_x509_cert_url"],
+        "universe_domain": st.secrets["universe_domain"]
     })
     firebase_admin.initialize_app(cred, {
         'databaseURL': st.secrets["database_url"]
     })
 
-# Firebase reference
-ref = db.reference("relays")
-pir_ref = db.reference("pir_target")
 IST = pytz.timezone('Asia/Kolkata')
+ref = db.reference("relays")
 
-# Helpers
-def format_time(ts):
-    if not ts:
+# Utility Functions
+def load_states():
+    return ref.get() or {}
+
+def save_state(relay_key, data):
+    ref.child(relay_key).set(data)
+
+def format_time(timestamp):
+    if not timestamp:
         return "-"
     try:
-        return datetime.datetime.fromisoformat(ts).astimezone(IST).strftime("%H:%M:%S")
+        return datetime.datetime.fromisoformat(timestamp).astimezone(IST).strftime("%H:%M:%S")
     except:
         return "Invalid"
 
-def get_relay_data():
-    return ref.get() or {}
-
-def save_relay(relay_id, data):
-    ref.child(relay_id).set(data)
-
-# Load states
-relays = get_relay_data()
-now = datetime.datetime.now(IST)
-
-# Layout
+# Streamlit UI Setup
 st.set_page_config(layout="wide", page_title="Smart Home Dashboard")
-st.title("💡 Smart Room Automation")
+st.title("\U0001F4A1 Smart Relay Control")
 
 st.markdown("""
 <style>
@@ -60,7 +55,7 @@ st.markdown("""
     flex: 1;
     min-width: 45%;
 }
-.row {
+.row-container {
     display: flex;
     justify-content: space-between;
     flex-wrap: wrap;
@@ -68,62 +63,95 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# Select PIR target
-default_pir = pir_ref.get() or "relay1"
-selected_pir = st.selectbox("👀 PIR Controls Which Relay?", [f"relay{i}" for i in range(1, 5)], index=int(default_pir[-1]) - 1)
-pir_ref.set(selected_pir)
+relay_states = load_states()
+now = datetime.datetime.now(IST)
 
-# UI Grid
-st.markdown("<div class='row'>", unsafe_allow_html=True)
+# Main Grid UI
+st.markdown("<div class='row-container'>", unsafe_allow_html=True)
 for i in range(1, 5):
-    relay_id = f"relay{i}"
-    if relay_id not in relays:
-        relays[relay_id] = {
-            "status": False,
-            "last_on": None,
-            "last_off": None,
-            "total_on_time": 0,
-            "name": f"Relay {i}"
-        }
+    relay_key = f"relay{i}"
 
-    relay = relays[relay_id]
+    if relay_key not in relay_states:
+        relay_states[relay_key] = {}
 
-    # UI controls
-    st.session_state.setdefault(f"{relay_id}_name", relay["name"])
-    st.session_state.setdefault(f"{relay_id}_toggle", relay["status"])
+    relay = relay_states[relay_key]
+    relay.setdefault("status", False)
+    relay.setdefault("last_on", None)
+    relay.setdefault("last_off", None)
+    relay.setdefault("total_on_time", 0)
+    relay.setdefault("name", f"Relay {i}")
 
-    # Calculate ON time
-    if relay["status"] and relay["last_on"]:
-        duration = (now - datetime.datetime.fromisoformat(relay["last_on"])).total_seconds()
-    else:
-        duration = 0
+    now = datetime.datetime.now(IST)
 
-    bg = "green" if relay["status"] else "red"
+    name_key = relay_key + "_name"
+    toggle_key = relay_key + "_toggle"
+    auto_on_key = relay_key + "_auto_on"
+    auto_off_key = relay_key + "_auto_off"
+    sched_on_key = relay_key + "_sched_on"
+    sched_off_key = relay_key + "_sched_off"
+
+    # Init session_state defaults
+    st.session_state.setdefault(name_key, relay["name"])
+    st.session_state.setdefault(toggle_key, relay["status"])
+    st.session_state.setdefault(auto_on_key, 0)
+    st.session_state.setdefault(auto_off_key, 0)
+    st.session_state.setdefault(sched_on_key, datetime.time(0, 0))
+    st.session_state.setdefault(sched_off_key, datetime.time(0, 0))
+
+    auto_on = st.session_state[auto_on_key]
+    auto_off = st.session_state[auto_off_key]
+    sched_on = st.session_state[sched_on_key]
+    sched_off = st.session_state[sched_off_key]
+
+    # Auto ON/OFF logic
+    if auto_on > 0 and relay["last_off"] and not relay["status"]:
+        if (now - datetime.datetime.fromisoformat(relay["last_off"])).total_seconds() >= auto_on:
+            relay["status"] = True
+            relay["last_on"] = now.isoformat()
+
+    if auto_off > 0 and relay["last_on"] and relay["status"]:
+        if (now - datetime.datetime.fromisoformat(relay["last_on"])).total_seconds() >= auto_off:
+            relay["status"] = False
+            relay["last_off"] = now.isoformat()
+            relay["total_on_time"] += int((now - datetime.datetime.fromisoformat(relay["last_on"])).total_seconds())
+
+    # Schedule ON/OFF
+    if sched_on and now.time().hour == sched_on.hour and now.time().minute == sched_on.minute and not relay["status"]:
+        relay["status"] = True
+        relay["last_on"] = now.isoformat()
+
+    if sched_off and now.time().hour == sched_off.hour and now.time().minute == sched_off.minute and relay["status"]:
+        relay["status"] = False
+        relay["last_off"] = now.isoformat()
+        relay["total_on_time"] += int((now - datetime.datetime.fromisoformat(relay["last_on"])).total_seconds())
+
+    save_state(relay_key, relay)
+
+    # Visual Tile
+    bg_color = "green" if relay["status"] else "red"
     st.markdown(f"""
-    <div class='relay-box' style='background-color:{bg};'>
-        <h3>{st.session_state[f"{relay_id}_name"]}</h3>
-        <p>Last ON: {format_time(relay['last_on'])}</p>
-        <p>Last OFF: {format_time(relay['last_off'])}</p>
-        <p>Total ON Time: {str(datetime.timedelta(seconds=relay['total_on_time'] + int(duration)))}</p>
+    <div class='relay-box' style='background-color:{bg_color};'>
+        <h3>{st.session_state[name_key]}</h3>
+        <p>Last ON: {format_time(relay.get('last_on'))}</p>
+        <p>Last OFF: {format_time(relay.get('last_off'))}</p>
+        <p>Total ON Time: {str(datetime.timedelta(seconds=relay['total_on_time']))}</p>
     </div>
     """, unsafe_allow_html=True)
 
-    toggle = st.toggle("Toggle", key=f"{relay_id}_toggle", value=relay["status"])
+    toggle = st.toggle("Toggle", key=toggle_key, value=relay["status"])
     if toggle != relay["status"]:
         relay["status"] = toggle
-        timestamp = now.isoformat()
         if toggle:
-            relay["last_on"] = timestamp
+            relay["last_on"] = now.isoformat()
         else:
-            relay["last_off"] = timestamp
-            if relay["last_on"]:
-                relay["total_on_time"] += int((now - datetime.datetime.fromisoformat(relay["last_on"])).total_seconds())
-        save_relay(relay_id, relay)
+            relay["last_off"] = now.isoformat()
+        save_state(relay_key, relay)
 
-    with st.expander("⚙️ Options"):
-        new_name = st.text_input("Rename", value=st.session_state[f"{relay_id}_name"], key=f"{relay_id}_name_input")
-        st.session_state[f"{relay_id}_name"] = new_name
-        relay["name"] = new_name
-        save_relay(relay_id, relay)
+    with st.expander("⚙️ Options", expanded=False):
+        st.session_state[name_key] = st.text_input("Rename", value=st.session_state[name_key], key=name_key)
+        st.session_state[auto_on_key] = st.number_input("Auto ON (s)", min_value=0, key=auto_on_key)
+        st.session_state[auto_off_key] = st.number_input("Auto OFF (s)", min_value=0, key=auto_off_key)
+        st.session_state[sched_on_key] = st.time_input("Schedule ON", value=st.session_state[sched_on_key], key=sched_on_key)
+        st.session_state[sched_off_key] = st.time_input("Schedule OFF", value=st.session_state[sched_off_key], key=sched_off_key)
 
 st.markdown("</div>", unsafe_allow_html=True)
