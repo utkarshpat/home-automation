@@ -1,10 +1,12 @@
+# STREAMLIT UI - SMART ROOM DASHBOARD (Fully Synced with ESP8266 Firebase Logic)
+
 import streamlit as st
 import datetime
 import pytz
 import firebase_admin
 from firebase_admin import credentials, db
 
-# Firebase setup
+# Firebase Credentials (from Streamlit secrets)
 if not firebase_admin._apps:
     cred = credentials.Certificate({
         "type": st.secrets["type"],
@@ -23,34 +25,25 @@ if not firebase_admin._apps:
         'databaseURL': st.secrets["database_url"]
     })
 
+# Firebase Refs
+relay_ref = db.reference("relays")
+pir_settings_ref = db.reference("pir_settings")
+
 IST = pytz.timezone('Asia/Kolkata')
-ref = db.reference("relays")
 
-def load_states():
-    return ref.get() or {}
-
-def save_state(relay_key, data):
-    ref.child(relay_key).set(data)
-
-def format_time(timestamp):
-    if not timestamp:
-        return "-"
-    try:
-        return datetime.datetime.fromisoformat(timestamp).astimezone(IST).strftime("%H:%M:%S")
-    except:
-        return "Invalid timestamp"
-
-st.set_page_config(layout="wide", page_title="Smart Home Dashboard")
-st.title("\U0001F4A1 Smart Relay Control")
+# UI Config
+st.set_page_config(layout="wide", page_title="Room Automation Dashboard")
+st.title("🏠 Room Automation Dashboard")
 
 st.markdown("""
 <style>
 .relay-box {
     padding: 1rem;
-    border-radius: 10px;
+    border-radius: 15px;
     margin: 0.5rem;
     color: white;
     flex: 1;
+    min-width: 45%;
 }
 .row-container {
     display: flex;
@@ -60,100 +53,71 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-relay_states = load_states()
+# Load relay state
+relays = relay_ref.get() or {}
 now = datetime.datetime.now(IST)
 
-# Group relays into 2x2 grid
-for row in range(2):
-    st.markdown("<div class='row-container'>", unsafe_allow_html=True)
-    for col in range(2):
-        i = row * 2 + col + 1
-        relay_key = f"relay{i}"
+# Ensure all 4 relays exist
+for i in range(1, 5):
+    key = f"relay{i}"
+    if key not in relays:
+        relays[key] = {
+            "status": False,
+            "name": f"Relay {i}",
+            "last_on": None,
+            "last_off": None,
+            "total_on_time": 0
+        }
 
-        if relay_key not in relay_states:
-            relay_states[relay_key] = {
-                "status": False,
-                "last_on": None,
-                "last_off": None,
-                "total_on_time": 0,
-                "name": f"Relay {i}"
-            }
+# Load PIR Settings
+pir_config = pir_settings_ref.get() or {"enabled": False, "relays": []}
 
-        now = datetime.datetime.now(IST)
-        relay = relay_states[relay_key]
+# Render relays
+st.markdown("<div class='row-container'>", unsafe_allow_html=True)
+for i in range(1, 5):
+    key = f"relay{i}"
+    relay = relays[key]
+    bg = "green" if relay["status"] else "red"
+    
+    # Display box
+    st.markdown(f"""
+    <div class='relay-box' style='background-color:{bg};'>
+        <h3>{relay['name']}</h3>
+        <p>Last ON: {relay['last_on'] or '-'}<br>
+           Last OFF: {relay['last_off'] or '-'}<br>
+           Total ON Today: {str(datetime.timedelta(seconds=relay['total_on_time']))}</p>
+    </div>
+    """, unsafe_allow_html=True)
 
-        name_key = relay_key + "_name"
-        auto_on_key = relay_key + "_auto_on"
-        auto_off_key = relay_key + "_auto_off"
-        sched_on_key = relay_key + "_sched_on"
-        sched_off_key = relay_key + "_sched_off"
-        toggle_key = relay_key + "_toggle"
+    # Toggle control
+    toggle = st.toggle("Toggle", key=key, value=relay["status"])
+    if toggle != relay["status"]:
+        now_iso = now.isoformat()
+        relay["status"] = toggle
+        if toggle:
+            relay["last_on"] = now_iso
+        else:
+            relay["last_off"] = now_iso
+            if relay["last_on"]:
+                on_dt = datetime.datetime.fromisoformat(relay["last_on"])
+                relay["total_on_time"] += int((now - on_dt).total_seconds())
+        relay_ref.child(key).set(relay)
 
-        if name_key not in st.session_state:
-            st.session_state[name_key] = relay['name']
-        if auto_on_key not in st.session_state:
-            st.session_state[auto_on_key] = 0
-        if auto_off_key not in st.session_state:
-            st.session_state[auto_off_key] = 0
-        if sched_on_key not in st.session_state:
-            st.session_state[sched_on_key] = datetime.time(0, 0)
-        if sched_off_key not in st.session_state:
-            st.session_state[sched_off_key] = datetime.time(0, 0)
-        if toggle_key not in st.session_state:
-            st.session_state[toggle_key] = relay['status']
+    # Options
+    with st.expander("⚙️ Options"):
+        new_name = st.text_input("Name", value=relay["name"], key=f"name_{key}")
+        relay["name"] = new_name
+        relay_ref.child(key).update({"name": new_name})
 
-        auto_on = st.session_state[auto_on_key]
-        auto_off = st.session_state[auto_off_key]
-        sched_on = st.session_state[sched_on_key]
-        sched_off = st.session_state[sched_off_key]
+st.markdown("</div>", unsafe_allow_html=True)
 
-        if auto_on > 0 and relay["last_off"] and not relay["status"]:
-            if (now - datetime.datetime.fromisoformat(relay["last_off"])).total_seconds() >= auto_on:
-                relay["status"] = True
-                relay["last_on"] = now.isoformat()
+# PIR settings
+st.markdown("---")
+st.header("🕵️ PIR Sensor Settings")
 
-        if auto_off > 0 and relay["last_on"] and relay["status"]:
-            if (now - datetime.datetime.fromisoformat(relay["last_on"])).total_seconds() >= auto_off:
-                relay["status"] = False
-                relay["last_off"] = now.isoformat()
-                relay["total_on_time"] += int((now - datetime.datetime.fromisoformat(relay["last_on"])).total_seconds())
+pir_enabled = st.checkbox("Enable PIR Mode", value=pir_config.get("enabled", False))
+pir_selection = st.multiselect("Select relays to control via PIR", [f"relay{i}" for i in range(1, 5)], default=pir_config.get("relays", []))
 
-        if sched_on and now.time().hour == sched_on.hour and now.time().minute == sched_on.minute and not relay["status"]:
-            relay["status"] = True
-            relay["last_on"] = now.isoformat()
-
-        if sched_off and now.time().hour == sched_off.hour and now.time().minute == sched_off.minute and relay["status"]:
-            relay["status"] = False
-            relay["last_off"] = now.isoformat()
-            relay["total_on_time"] += int((now - datetime.datetime.fromisoformat(relay["last_on"])).total_seconds())
-
-        save_state(relay_key, relay)
-
-        bg_color = "green" if relay["status"] else "red"
-
-        st.markdown(f"""
-        <div class='relay-box' style='background-color:{bg_color};'>
-            <h3>{st.session_state[name_key]}</h3>
-            <p>Last ON: {format_time(relay.get('last_on'))}</p>
-            <p>Last OFF: {format_time(relay.get('last_off'))}</p>
-            <p>Total ON Time: {str(datetime.timedelta(seconds=relay['total_on_time']))}</p>
-        </div>
-        """, unsafe_allow_html=True)
-
-        toggle = st.toggle("Toggle", key=toggle_key, value=relay["status"])
-        if toggle != relay["status"]:
-            relay["status"] = toggle
-            if toggle:
-                relay["last_on"] = now.isoformat()
-            else:
-                relay["last_off"] = now.isoformat()
-            save_state(relay_key, relay)
-
-        with st.expander("⚙️ Options", expanded=False):
-            st.session_state[name_key] = st.text_input("Rename", value=st.session_state[name_key], key=name_key)
-            st.session_state[auto_on_key] = st.number_input("Auto ON (s)", min_value=0, key=auto_on_key)
-            st.session_state[auto_off_key] = st.number_input("Auto OFF (s)", min_value=0, key=auto_off_key)
-            st.session_state[sched_on_key] = st.time_input("Schedule ON", value=st.session_state[sched_on_key], key=sched_on_key)
-            st.session_state[sched_off_key] = st.time_input("Schedule OFF", value=st.session_state[sched_off_key], key=sched_off_key)
-
-    st.markdown("</div>", unsafe_allow_html=True)
+if st.button("💾 Save PIR Settings"):
+    pir_settings_ref.set({"enabled": pir_enabled, "relays": pir_selection})
+    st.success("Settings saved!")
