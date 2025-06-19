@@ -139,11 +139,11 @@ for i in range(1, 5):
 
     # Schedule ON/OFF logic
     try:
-        if st.session_state[sched_on_key] == now.time().replace(second=0, microsecond=0) and not relay["status"]:
+        now_time = now.time().replace(second=0, microsecond=0)
+        if st.session_state[sched_on_key] == now_time and not relay["status"]:
             relay["status"] = True
             relay["last_on"] = now.isoformat()
-
-        if st.session_state[sched_off_key] == now.time().replace(second=0, microsecond=0) and relay["status"]:
+        if st.session_state[sched_off_key] == now_time and relay["status"]:
             relay["status"] = False
             relay["last_off"] = now.isoformat()
             relay["total_on_time"] += int((now - datetime.datetime.fromisoformat(relay["last_on"])).total_seconds())
@@ -180,11 +180,11 @@ for i in range(1, 5):
             st.session_state[name_key] = new_name
             save_state(relay_key, relay)
 
-        st.session_state[auto_on_key] = st.number_input("Auto ON (s)", min_value=0, key=auto_on_key)
-        st.session_state[auto_off_key] = st.number_input("Auto OFF (s)", min_value=0, key=auto_off_key)
-        st.session_state[sched_on_key] = st.time_input("Schedule ON", value=st.session_state[sched_on_key], key=sched_on_key)
-        st.session_state[sched_off_key] = st.time_input("Schedule OFF", value=st.session_state[sched_off_key], key=sched_off_key)
-        st.session_state[pir_key] = st.checkbox("Use PIR Sensor", value=st.session_state[pir_key], key=pir_key)
+        st.number_input("Auto ON (s)", min_value=0, key=auto_on_key)
+        st.number_input("Auto OFF (s)", min_value=0, key=auto_off_key)
+        st.time_input("Schedule ON", value=st.session_state[sched_on_key], key=sched_on_key)
+        st.time_input("Schedule OFF", value=st.session_state[sched_off_key], key=sched_off_key)
+        st.checkbox("Use PIR Sensor", value=st.session_state[pir_key], key=pir_key)
 
         relay["pir_control"] = st.session_state[pir_key]
         save_state(relay_key, relay)
