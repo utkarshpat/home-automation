@@ -1,4 +1,3 @@
-
 import streamlit as st
 import datetime
 import pytz
@@ -11,7 +10,7 @@ if not firebase_admin._apps:
         "type": st.secrets["type"],
         "project_id": st.secrets["project_id"],
         "private_key_id": st.secrets["private_key_id"],
-        "private_key": st.secrets["private_key"].replace("\n", "\n"),
+        "private_key": st.secrets["private_key"].replace("\\n", "\n"),
         "client_email": st.secrets["client_email"],
         "client_id": st.secrets["client_id"],
         "auth_uri": st.secrets["auth_uri"],
@@ -29,10 +28,33 @@ ref = db.reference("relays")
 
 # Utility Functions
 def load_states():
-    return ref.get() or {}
+    try:
+        data = ref.get()
+        if data is None:
+            default = {
+                f"relay{i}": {
+                    "name": f"Relay {i}",
+                    "status": False,
+                    "last_on": None,
+                    "last_off": None,
+                    "total_on_time": 0,
+                    "pir_control": False
+                } for i in range(1, 5)
+            }
+            ref.set(default)
+            return default
+        return data
+    except Exception as e:
+        st.error("❌ Firebase error: Unable to load relays.")
+        st.exception(e)
+        return {}
 
 def save_state(relay_key, data):
-    ref.child(relay_key).set(data)
+    try:
+        ref.child(relay_key).set(data)
+    except Exception as e:
+        st.error(f"❌ Failed to save state for {relay_key}")
+        st.exception(e)
 
 def format_time(timestamp):
     if not timestamp:
@@ -42,7 +64,7 @@ def format_time(timestamp):
     except:
         return "Invalid"
 
-# Streamlit UI Setup
+# UI Setup
 st.set_page_config(layout="wide", page_title="Smart Home Dashboard")
 st.title("💡 Smart Relay Control")
 
@@ -71,11 +93,9 @@ now = datetime.datetime.now(IST)
 st.markdown("<div class='row-container'>", unsafe_allow_html=True)
 for i in range(1, 5):
     relay_key = f"relay{i}"
+    relay = relay_states.get(relay_key, {})
 
-    if relay_key not in relay_states:
-        relay_states[relay_key] = {}
-
-    relay = relay_states[relay_key]
+    # Defaults
     relay.setdefault("status", False)
     relay.setdefault("last_on", None)
     relay.setdefault("last_off", None)
@@ -91,7 +111,6 @@ for i in range(1, 5):
     sched_off_key = relay_key + "_sched_off"
     pir_key = relay_key + "_pir"
 
-    # Init session_state defaults
     st.session_state.setdefault(name_key, relay["name"])
     st.session_state.setdefault(toggle_key, relay["status"])
     st.session_state.setdefault(auto_on_key, 0)
@@ -100,44 +119,41 @@ for i in range(1, 5):
     st.session_state.setdefault(sched_off_key, datetime.time(0, 0))
     st.session_state.setdefault(pir_key, relay["pir_control"])
 
-    auto_on = st.session_state[auto_on_key]
-    auto_off = st.session_state[auto_off_key]
-    sched_on = st.session_state[sched_on_key]
-    sched_off = st.session_state[sched_off_key]
-
     # Auto ON/OFF logic
     try:
-        if auto_on > 0 and relay["last_off"] and not relay["status"]:
-            if (now - datetime.datetime.fromisoformat(relay["last_off"])).total_seconds() >= auto_on:
+        if st.session_state[auto_on_key] > 0 and relay["last_off"] and not relay["status"]:
+            if (now - datetime.datetime.fromisoformat(relay["last_off"])).total_seconds() >= st.session_state[auto_on_key]:
                 relay["status"] = True
                 relay["last_on"] = now.isoformat()
     except:
         pass
 
     try:
-        if auto_off > 0 and relay["last_on"] and relay["status"]:
-            if (now - datetime.datetime.fromisoformat(relay["last_on"])).total_seconds() >= auto_off:
+        if st.session_state[auto_off_key] > 0 and relay["last_on"] and relay["status"]:
+            if (now - datetime.datetime.fromisoformat(relay["last_on"])).total_seconds() >= st.session_state[auto_off_key]:
                 relay["status"] = False
                 relay["last_off"] = now.isoformat()
                 relay["total_on_time"] += int((now - datetime.datetime.fromisoformat(relay["last_on"])).total_seconds())
     except:
         pass
 
-    # Schedule ON/OFF
+    # Schedule ON/OFF logic
     try:
-        if sched_on and now.time().hour == sched_on.hour and now.time().minute == sched_on.minute and not relay["status"]:
+        if st.session_state[sched_on_key] == now.time().replace(second=0, microsecond=0) and not relay["status"]:
             relay["status"] = True
             relay["last_on"] = now.isoformat()
-        if sched_off and now.time().hour == sched_off.hour and now.time().minute == sched_off.minute and relay["status"]:
+
+        if st.session_state[sched_off_key] == now.time().replace(second=0, microsecond=0) and relay["status"]:
             relay["status"] = False
             relay["last_off"] = now.isoformat()
             relay["total_on_time"] += int((now - datetime.datetime.fromisoformat(relay["last_on"])).total_seconds())
     except:
         pass
 
+    # Save updated state
     save_state(relay_key, relay)
 
-    # Visual Tile
+    # UI display
     bg_color = "green" if relay["status"] else "red"
     st.markdown(f"""
     <div class='relay-box' style='background-color:{bg_color};'>
@@ -163,11 +179,13 @@ for i in range(1, 5):
             relay["name"] = new_name
             st.session_state[name_key] = new_name
             save_state(relay_key, relay)
+
         st.session_state[auto_on_key] = st.number_input("Auto ON (s)", min_value=0, key=auto_on_key)
         st.session_state[auto_off_key] = st.number_input("Auto OFF (s)", min_value=0, key=auto_off_key)
         st.session_state[sched_on_key] = st.time_input("Schedule ON", value=st.session_state[sched_on_key], key=sched_on_key)
         st.session_state[sched_off_key] = st.time_input("Schedule OFF", value=st.session_state[sched_off_key], key=sched_off_key)
         st.session_state[pir_key] = st.checkbox("Use PIR Sensor", value=st.session_state[pir_key], key=pir_key)
+
         relay["pir_control"] = st.session_state[pir_key]
         save_state(relay_key, relay)
 
