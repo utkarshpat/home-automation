@@ -174,7 +174,7 @@ for i in range(1, 5):
         else:
             relay["last_off"] = now.isoformat()
         save_state(relay_key, relay)
-        st.experimental_rerun()  # Instant UI update
+        st.rerun()  # ✅ updated from experimental_rerun
 
     with st.expander("⚙️ Options", expanded=False):
         new_name = st.text_input("Rename", value=st.session_state[name_key], key=name_key)
