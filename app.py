@@ -91,12 +91,18 @@ for i in range(1, 5):
     sched_off_key = relay_key + "_sched_off"
 
     # Init session_state defaults
-    st.session_state.setdefault(name_key, relay["name"])
-    st.session_state.setdefault(toggle_key, relay["status"])
-    st.session_state.setdefault(auto_on_key, 0)
-    st.session_state.setdefault(auto_off_key, 0)
-    st.session_state.setdefault(sched_on_key, datetime.time(0, 0))
-    st.session_state.setdefault(sched_off_key, datetime.time(0, 0))
+    if name_key not in st.session_state:
+        st.session_state[name_key] = relay["name"]
+    if toggle_key not in st.session_state:
+        st.session_state[toggle_key] = relay["status"]
+    if auto_on_key not in st.session_state:
+        st.session_state[auto_on_key] = 0
+    if auto_off_key not in st.session_state:
+        st.session_state[auto_off_key] = 0
+    if sched_on_key not in st.session_state:
+        st.session_state[sched_on_key] = datetime.time(0, 0)
+    if sched_off_key not in st.session_state:
+        st.session_state[sched_off_key] = datetime.time(0, 0)
 
     auto_on = st.session_state[auto_on_key]
     auto_off = st.session_state[auto_off_key]
@@ -148,7 +154,10 @@ for i in range(1, 5):
         save_state(relay_key, relay)
 
     with st.expander("⚙️ Options", expanded=False):
-        st.session_state[name_key] = st.text_input("Rename", value=st.session_state[name_key], key=name_key)
+        new_name = st.text_input("Rename", value=st.session_state[name_key], key=name_key)
+        if new_name != relay["name"]:
+            relay["name"] = new_name
+            save_state(relay_key, relay)
         st.session_state[auto_on_key] = st.number_input("Auto ON (s)", min_value=0, key=auto_on_key)
         st.session_state[auto_off_key] = st.number_input("Auto OFF (s)", min_value=0, key=auto_off_key)
         st.session_state[sched_on_key] = st.time_input("Schedule ON", value=st.session_state[sched_on_key], key=sched_on_key)
