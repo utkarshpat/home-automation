@@ -119,10 +119,11 @@ for i in range(1, 5):
     st.session_state.setdefault(sched_off_key, datetime.time(0, 0))
     st.session_state.setdefault(pir_key, relay["pir_control"])
 
-    # Auto ON/OFF logic
+    # Auto ON/OFF logic (with debounce)
     try:
         if st.session_state[auto_on_key] > 0 and relay["last_off"] and not relay["status"]:
-            if (now - datetime.datetime.fromisoformat(relay["last_off"])).total_seconds() >= st.session_state[auto_on_key]:
+            seconds_since_off = (now - datetime.datetime.fromisoformat(relay["last_off"])).total_seconds()
+            if 1 <= seconds_since_off <= st.session_state[auto_on_key]:
                 relay["status"] = True
                 relay["last_on"] = now.isoformat()
     except:
@@ -130,14 +131,15 @@ for i in range(1, 5):
 
     try:
         if st.session_state[auto_off_key] > 0 and relay["last_on"] and relay["status"]:
-            if (now - datetime.datetime.fromisoformat(relay["last_on"])).total_seconds() >= st.session_state[auto_off_key]:
+            seconds_since_on = (now - datetime.datetime.fromisoformat(relay["last_on"])).total_seconds()
+            if seconds_since_on >= st.session_state[auto_off_key]:
                 relay["status"] = False
                 relay["last_off"] = now.isoformat()
-                relay["total_on_time"] += int((now - datetime.datetime.fromisoformat(relay["last_on"])).total_seconds())
+                relay["total_on_time"] += int(seconds_since_on)
     except:
         pass
 
-    # Schedule ON/OFF logic
+    # Schedule ON/OFF
     try:
         now_time = now.time().replace(second=0, microsecond=0)
         if st.session_state[sched_on_key] == now_time and not relay["status"]:
@@ -153,7 +155,7 @@ for i in range(1, 5):
     # Save updated state
     save_state(relay_key, relay)
 
-    # UI display
+    # UI block
     bg_color = "green" if relay["status"] else "red"
     st.markdown(f"""
     <div class='relay-box' style='background-color:{bg_color};'>
@@ -172,6 +174,7 @@ for i in range(1, 5):
         else:
             relay["last_off"] = now.isoformat()
         save_state(relay_key, relay)
+        st.experimental_rerun()  # Instant UI update
 
     with st.expander("⚙️ Options", expanded=False):
         new_name = st.text_input("Rename", value=st.session_state[name_key], key=name_key)
